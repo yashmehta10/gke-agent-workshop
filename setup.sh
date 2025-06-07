@@ -1,20 +1,30 @@
 #!/bin/bash
 
 # ==============================================================================
-#  GKE Workshop Setup Script
-#  This script prepares a new Google Cloud project for the workshop by:
+#  GKE Workshop Setup & Teardown Script
+#
+#  Usage:
+#    sh setup.sh         - Sets up all required resources.
+#    sh setup.sh destroy - Destroys the created resources.
+#
+#  This script prepares/cleans a Google Cloud project for the workshop by:
+#  Setup Mode:
 #  1. Enabling required APIs.
 #  2. Creating a GKE Autopilot cluster.
 #  3. Creating an Artifact Registry Docker repository.
 #  4. Configuring local Docker client authentication.
+#
+#  Destroy Mode:
+#  1. Deleting the GKE Autopilot cluster.
+#  2. Deleting the Artifact Registry Docker repository.
 # ==============================================================================
 
 # --- Configuration ---
-# You can change these variables if you want different names for your resources.
+# These variables define the names for the resources to be created/deleted.
 GKE_CLUSTER_NAME="autopilot-cluster-1"
 GKE_REGION="us-central1"
 AR_REPO_NAME="ai-docker-repo"
-AR_LOCATION="us-central1" # Must be a region, not a multi-region, for Docker repos
+AR_LOCATION="us-central1"
 
 # --- Helper Functions for Colors and Output ---
 print_header() {
@@ -31,6 +41,58 @@ print_error() {
   echo "$(tput setaf 1)✘ ERROR: $1$(tput sgr0)"
 }
 
+print_warning() {
+  echo "$(tput setaf 3)❗ WARNING: $1$(tput sgr0)"
+}
+
+# --- Teardown Function ---
+destroy_resources() {
+  print_header "Destroying Workshop Resources"
+  print_warning "This is a destructive action and cannot be undone."
+  echo "The following resources in project '$(tput bold)$PROJECT_ID$(tput sgr0)' will be deleted:"
+  echo "  - GKE Cluster:      $(tput bold)$GKE_CLUSTER_NAME$(tput sgr0) in region $(tput bold)$GKE_REGION$(tput sgr0)"
+  echo "  - Artifact Registry:  $(tput bold)$AR_REPO_NAME$(tput sgr0) in location $(tput bold)$AR_LOCATION$(tput sgr0)"
+  echo ""
+
+  read -p "Are you sure you want to continue? (y/N) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Destroy operation cancelled."
+      exit 1
+  fi
+
+  # Delete GKE Cluster
+  print_header "Deleting GKE Cluster"
+  echo "This step can take several minutes..."
+  if gcloud container clusters describe "$GKE_CLUSTER_NAME" --region="$GKE_REGION" --project="$PROJECT_ID" &>/dev/null; then
+    gcloud container clusters delete "$GKE_CLUSTER_NAME" --region="$GKE_REGION" --project="$PROJECT_ID" --quiet
+    if [ $? -eq 0 ]; then
+        print_success "Successfully deleted GKE cluster '$GKE_CLUSTER_NAME'."
+    else
+        print_error "Failed to delete GKE cluster. It may need to be deleted manually via the Google Cloud Console."
+    fi
+  else
+    print_success "GKE cluster '$GKE_CLUSTER_NAME' not found, nothing to delete."
+  fi
+
+  # Delete Artifact Registry Repository
+  print_header "Deleting Artifact Registry Repository"
+  if gcloud artifacts repositories describe "$AR_REPO_NAME" --location="$AR_LOCATION" --project="$PROJECT_ID" &>/dev/null; then
+    gcloud artifacts repositories delete "$AR_REPO_NAME" --location="$AR_LOCATION" --project="$PROJECT_ID" --quiet
+    if [ $? -eq 0 ]; then
+        print_success "Successfully deleted Artifact Registry repository '$AR_REPO_NAME'."
+    else
+        print_error "Failed to delete Artifact Registry repository. It may need to be deleted manually."
+    fi
+  else
+    print_success "Artifact Registry repository '$AR_REPO_NAME' not found, nothing to delete."
+  fi
+
+  print_header "🎉 Teardown Complete! 🎉"
+}
+
+# --- Main Logic ---
+
 # --- Check for gcloud CLI ---
 if ! command -v gcloud &> /dev/null
 then
@@ -41,7 +103,6 @@ fi
 # --- 1. Set Project ID ---
 print_header "Setting up Google Cloud Project"
 
-# Get the current project ID, or prompt the user if not set
 PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
 if [ -z "$PROJECT_ID" ]; then
     read -p "Please enter your Google Cloud Project ID: " PROJECT_ID
@@ -50,16 +111,21 @@ if [ -z "$PROJECT_ID" ]; then
         exit 1
     fi
 fi
-
-# Set the project for the current gcloud configuration
 gcloud config set project "$PROJECT_ID"
 echo "Working with project: $(tput bold)$PROJECT_ID$(tput sgr0)"
 
 
+# --- Check for 'destroy' argument ---
+if [ "$1" == "destroy" ]; then
+  destroy_resources
+  exit 0
+fi
+
+# --- Continue with setup if 'destroy' is not specified ---
+
 # --- 2. Enable Required Services (APIs) ---
 print_header "Enabling required Google Cloud services..."
 
-# List of services to enable
 SERVICES=(
   "container.googleapis.com"        # Google Kubernetes Engine API
   "artifactregistry.googleapis.com" # Artifact Registry API
@@ -68,7 +134,6 @@ SERVICES=(
 )
 
 for SERVICE in "${SERVICES[@]}"; do
-  # Check if the service is already enabled
   if gcloud services list --enabled --filter="name:$SERVICE" --format="value(name)" | grep -q "$SERVICE"; then
     print_success "$SERVICE is already enabled."
   else
@@ -88,7 +153,6 @@ done
 print_header "Creating GKE Autopilot Cluster"
 echo "This step can take several minutes..."
 
-# Check if the cluster already exists
 if gcloud container clusters describe "$GKE_CLUSTER_NAME" --region="$GKE_REGION" --project="$PROJECT_ID" &>/dev/null; then
   print_success "GKE cluster '$GKE_CLUSTER_NAME' already exists in region '$GKE_REGION'."
 else
@@ -107,7 +171,6 @@ fi
 # --- 4. Create Artifact Registry Repository ---
 print_header "Creating Artifact Registry Docker Repository"
 
-# Check if the repository already exists
 if gcloud artifacts repositories describe "$AR_REPO_NAME" --location="$AR_LOCATION" --project="$PROJECT_ID" &>/dev/null; then
   print_success "Artifact Registry repository '$AR_REPO_NAME' already exists in location '$AR_LOCATION'."
 else
