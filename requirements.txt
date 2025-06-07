@@ -1,0 +1,6 @@
+google-adk
+google-cloud-container 
+google-auth
+kubernetes
+docker
+PyYAML
