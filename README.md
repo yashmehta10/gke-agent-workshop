@@ -194,10 +194,5 @@ python kube_agent/tools/gke_tools.py
 ```
 Review the `if __name__ == "__main__":` sections in these files for specific test configurations and adjust them as needed.
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a pull request or open an issue.
-
-## License
-
-This project is licensed under the Apache 2.0 License - see the LICENSE file for details (if one exists, otherwise consider adding one).
+# VertexAI Sprint 2025
+Google Cloud credits are provided for this project #AISprint
